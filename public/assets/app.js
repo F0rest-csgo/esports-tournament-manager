@@ -6,7 +6,7 @@ const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelect
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formats={single:'单败淘汰赛',double:'双败淘汰赛',round_robin:'单循环',double_round_robin:'双循环',swiss:'瑞士轮'};
 const statuses={scheduled:'未开始',live:'进行中',completed:'已结束',postponed:'已延期',cancelled:'已取消',inactive:'待定',pending:'待开始',running:'进行中',active:'开放中',disabled:'已停用',archived:'已归档'};
-const actions={attachment_upload:'上传附件',attachment_visibility:'修改附件可见范围',attachment_delete:'删除附件',create:'创建赛事',settings:'更新赛事设置',teams_add:'批量添加队伍',team_edit:'修改队伍',team_delete:'删除队伍',stage_save:'修改赛制',stage_draw:'调整分组与首轮对阵',generate:'生成赛程',stage_reset:'重置阶段',swiss_next:'生成瑞士轮',swiss_undo:'撤回瑞士轮',match_edit:'修改比赛与比分',batch:'批量修改比赛',advance:'锁定晋级',password:'重置管理密码',status:'修改赛事状态',logo_upload:'更新赛事 Logo',logo_delete:'删除赛事 Logo',admin_init:'初始化管理员'};
+const actions={tournament_copy:'复制赛事',tournament_delete:'删除赛事',attachment_upload:'上传附件',attachment_visibility:'修改附件可见范围',attachment_delete:'删除附件',create:'创建赛事',settings:'更新赛事设置',teams_add:'批量添加队伍',team_edit:'修改队伍',team_delete:'删除队伍',stage_save:'修改赛制',stage_draw:'调整分组与首轮对阵',generate:'生成赛程',stage_reset:'重置阶段',swiss_next:'生成瑞士轮',swiss_undo:'撤回瑞士轮',match_edit:'修改比赛与比分',batch:'批量修改比赛',advance:'锁定晋级',password:'重置管理密码',status:'修改赛事状态',logo_upload:'更新赛事 Logo',logo_delete:'删除赛事 Logo',admin_init:'初始化管理员'};
 let csrf=$('meta[name="csrf-token"]')?.content||'', api=mode==='login'?body.dataset.api:(mode==='global'?'/api/admin':'/api/tournaments/'+body.dataset.slug);
 let data=null, page='dashboard', tab='overview', selectedStage='', swissRound='', selected=new Set(), filters={stage:'',round:'',group:'',status:'',team:'',sort:'number'}, logCursor='',logs=[],preview=null;
 let toastTimer; const previewEdges=new Map();
@@ -61,7 +61,9 @@ const nav=mode==='global'?[['dashboard','▦','赛事控制台'],['logs','≡','
 if(mode!=='public')$('#side-nav').innerHTML=nav.map(([p,i,l])=>`<button type="button" data-page="${p}"><span class="nav-icon">${i}</span>${l}</button>`).join('');
 async function load(){data=await request('/state');if(mode==='global')renderGlobal();else if(mode==='public')renderPublic();else renderAdmin();if($('#modal')?.open&&$('#modal').dataset.matchDetail)matchDetail($('#modal').dataset.matchDetail);}
 function stat(label,value,note,blue=false){return `<div class="stat ${blue?'blue':''}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div><div class="stat-note">${note}</div></div>`;}
-function renderGlobal(){markNav();if(page==='logs'){renderLogs();return;}const ts=data.tournaments;$('#content').innerHTML=heading('赛事控制台','管理所有赛事与独立访问权限。',button('＋ 创建赛事','create','','primary'))+`<div class="stats">${stat('赛事总数',ts.length,'全部独立赛事',true)}${stat('开放赛事',ts.filter(t=>t.status==='active').length,'当前开放访问')}${stat('参赛队伍',ts.reduce((n,t)=>n+(+t.team_count),0),'所有赛事合计')}${stat('已归档',ts.filter(t=>t.status==='archived').length,'保留完整比赛记录')}</div><section class="card"><div class="section-heading"><h2>全部赛事</h2><span>${ts.length} 个赛事</span></div>${ts.length?`<div class="table-scroll"><table><thead><tr><th>赛事</th><th>专属地址</th><th>队伍</th><th>状态</th><th>操作</th></tr></thead><tbody>${ts.map(t=>`<tr><td class="wrap"><strong>${esc(t.name)}</strong><div class="fine">${esc(t.timezone)}</div></td><td><a href="/tournaments/${esc(t.slug)}" target="_blank" rel="noopener">${esc(t.slug)} ↗</a></td><td>${t.team_count}</td><td>${pill(t.status)}</td><td><div class="toolbar"><a class="button small secondary" href="/tournaments/${esc(t.slug)}/admin">管理赛事</a>${button('密码','password',`data-id="${t.id}"`,'small secondary')}${button('状态','tournament-status',`data-id="${t.id}"`,'small secondary')}</div></td></tr>`).join('')}</tbody></table></div>`:empty('还没有赛事。创建第一个赛事，开始编排赛程。')}</section>`;}
+function renderGlobal(){markNav();if(page==='logs'){renderLogs();return;}const ts=data.tournaments;$('#content').innerHTML=heading('赛事控制台','管理所有赛事与独立访问权限。',button('＋ 创建赛事','create','','primary'))+`<div class="stats">${stat('赛事总数',ts.length,'全部独立赛事',true)}${stat('开放赛事',ts.filter(t=>t.status==='active').length,'当前开放访问')}${stat('参赛队伍',ts.reduce((n,t)=>n+(+t.team_count),0),'所有赛事合计')}${stat('已归档',ts.filter(t=>t.status==='archived').length,'保留完整比赛记录')}</div><section class="card"><div class="section-heading"><h2>全部赛事</h2><span>${ts.length} 个赛事</span></div>${ts.length?`<div class="table-scroll"><table><thead><tr><th>赛事</th><th>专属地址</th><th>队伍</th><th>状态</th><th>操作</th></tr></thead><tbody>${ts.map(t=>`<tr><td class="wrap"><strong>${esc(t.name)}</strong><div class="fine">${esc(t.timezone)}</div></td><td><a href="/tournaments/${esc(t.slug)}" target="_blank" rel="noopener">${esc(t.slug)} ↗</a></td><td>${t.team_count}</td><td>${pill(t.status)}</td><td><div class="toolbar"><a class="button small secondary" href="/tournaments/${esc(t.slug)}/admin">管理赛事</a>${button('密码','password',`data-id="${t.id}"`,'small secondary')}${button('状态','tournament-status',`data-id="${t.id}"`,'small secondary')}
+${button('复制','tournament-copy',`data-id="${t.id}"`,'small secondary')}
+${button('删除','tournament-delete',`data-id="${t.id}"`,'small danger')}</div></td></tr>`).join('')}</tbody></table></div>`:empty('还没有赛事。创建第一个赛事，开始编排赛程。')}</section>`;}
 function markNav(){$$('#side-nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));}
 function renderAdmin(){markNav();const t=data.tournament;if(page==='logs'){renderLogs();return;}if(page==='settings'){$('#content').innerHTML=heading('赛事设置','管理赛事信息、比分规则、Logo 和赛事附件。')+`<div class="grid-two"><section class="card"><h2>基本信息与比赛规则</h2><form data-form="settings">${settingsFields(t)}${formEnd()}</form></section><section class="card"><h2>赛事 Logo</h2><p class="fine">设置后所有队伍统一使用此 Logo。支持 PNG、JPEG、WebP，最大 10 MB、4096×4096。</p>${t.logo_path?`<img class="event-logo" src="${esc(t.logo_path)}" alt="赛事 Logo"><p>${button('删除 Logo','logo-delete','','small danger')}</p>`:empty('尚未设置 Logo')}<form data-form="logo"><label>选择图片<input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required></label>${formEnd('上传 Logo')}</form></section></div>`;mountAttachmentPanel($('#content'));return;}
 if(page==='teams'){renderTeamsAdmin();return;}if(page==='formats'){renderFormats();return;}if(page==='schedule'){renderSchedule();return;}if(page==='matches'){$('#content').innerHTML=heading('比赛管理','编辑对阵、小局比分与比赛时间。',button('批量设置','batch','','primary'))+`<section class="card">${matchFilters()}${matchesTable(filteredMatches(),true)}</section>`;return;}if(page==='advance'){renderAdvance();return;}
@@ -321,6 +323,27 @@ function drawPreview(s,draw){
     if(draw.groups.length)return draw.groups.map(group=>`<p class="fine"><strong>${esc(group.name)}</strong>：${group.teams.map(id=>esc(teamName(id))).join(' / ')}</p>`).join('');
     return `<ol class="draw-preview">${draw.pairings.map(pair=>`<li>${esc(teamName(pair.a))} <span>vs</span> ${pair.b?esc(teamName(pair.b)):'轮空'}</li>`).join('')}</ol>`;
 }
+function openTournamentCopy(id){
+    const tournament=data.tournaments.find(item=>+item.id===id);
+    const name=Array.from(tournament.name).slice(0,147).join('')+' 副本';
+    openModal('复制赛事',`<p class="notice">从「${esc(tournament.name)}」复制赛程、赛果和全部附件。副本默认停用，可在总后台启用。</p>
+        <form data-form="tournament_copy">
+        <input type="hidden" name="id" value="${id}">
+        ${field('新赛事名称','name',name,'text','required maxlength="150"')}
+        ${field('新网址标识（Slug）','slug','','text','required maxlength="100" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="example-cup-copy"')}
+        ${field('新赛事管理密码','password','','password','required minlength="12" maxlength="72" autocomplete="new-password"')}
+        ${formEnd('复制赛事')}</form>`);
+}
+function openTournamentDelete(id){
+    const tournament=data.tournaments.find(item=>+item.id===id);
+    openModal('删除赛事',`<p class="notice">永久删除「${esc(tournament.name)}」（${esc(tournament.slug)}）及其队伍、赛程、赛果和附件。全局操作日志会保留。</p>
+        <form data-form="tournament_delete">
+        <input type="hidden" name="id" value="${id}">
+        ${field('请输入“确认删除”','confirmation','','text','required pattern="确认删除" autocomplete="off"')}
+        <div class="form-error" role="alert"></div>
+        <div class="modal-actions">${button('取消','close')}<button class="button danger" type="submit">永久删除赛事</button></div>
+        </form>`);
+}
 function batchModal(){const ids=[...selected];if(!ids.length){toast('请先在比赛列表中勾选需要修改的比赛。',true);return;}openModal('批量设置 '+ids.length+' 场比赛',`<form data-form="batch"><div class="notice">按比赛编号升序分配时间。可用阶段和轮次筛选后，勾选当前列表的全部比赛。</div>${field('第一场时间（留空清除时间）','scheduled_at','','datetime-local')}${field('每场间隔（分钟，0 为相同时间）','interval',0,'number','min="0" max="10080"')}${select('BO 规则','best_of',{'':'保留原规则',1:'BO1',3:'BO3',5:'BO5'},'')}${formEnd('应用到选中比赛')}</form>`);}
 document.addEventListener('click',async e=>{const nav=e.target.closest('[data-page]');if(nav){page=nav.dataset.page;selected.clear();mode==='global'?renderGlobal():renderAdmin();return;}const tb=e.target.closest('[data-tab]');if(tb){tab=tb.dataset.tab;renderPublic();return;}const sr=e.target.closest('[data-swiss-round]');if(sr){swissRound=sr.dataset.swissRound;renderPublic();return;}const b=e.target.closest('[data-action]');if(!b)return;const id=+b.dataset.id;try{switch(b.dataset.action){
 case 'close':closeModal();break;
@@ -336,6 +359,8 @@ case 'create':openModal('创建赛事',`<form data-form="create">${settingsField
 case 'team-edit':{const t=team(id);openModal('编辑队伍',`<form data-form="team_edit"><input type="hidden" name="id" value="${id}">${field('队伍名称','name',t.name,'text','required maxlength="100"')}${field('种子序号','seed',t.seed,'number','min="1" max="128" required')}${formEnd()}</form>`);break;}
 case 'team-delete':await confirmAction('删除队伍','确认删除 '+teamName(id)+'？此操作会记录日志。',()=>mutate('team_delete',{id}));break;
 case 'logo-delete':await confirmAction('删除赛事 Logo','确认移除赛事及所有队伍使用的统一 Logo？',()=>mutate('logo_delete'));break;
+case 'tournament-copy':openTournamentCopy(id);break;
+case 'tournament-delete':openTournamentDelete(id);break;
 case 'generate':generateModal(id);break;
 case 'draw-edit':drawModal(id);break;
 case 'stage-reset':await confirmAction('重置阶段','将删除本阶段的比赛、比分、比赛附件、分组和晋级名单。请确认已备份所需数据。',()=>mutate('stage_reset',{stage_id:id}));break;
@@ -354,6 +379,13 @@ document.addEventListener('change',e=>{const el=e.target;const form=el.closest('
 document.addEventListener('input',e=>{if(e.target.matches('[data-slug-field]')){const f=e.target.closest('form');$('[data-slug-preview]',f).textContent=location.origin+'/tournaments/'+(e.target.value||'cs2-campus-2026');}});
 document.addEventListener('submit',async e=>{const f=e.target;if(!f.matches('[data-form]'))return;e.preventDefault();if(f.dataset.form==='attachment_upload'){await submitAttachments(f);return;}const op=f.dataset.form,submit=$('[type="submit"]',f);submit.disabled=true;$('.form-error',f).textContent='';try{let d=Object.fromEntries(new FormData(f));
 if(op==='settings'){d=readSettings(f);if(+d.stage_count<+data.tournament.stage_count){submit.disabled=false;await confirmAction('删除第二阶段','改为单阶段会删除第二阶段的全部比赛、比分、比赛附件和参赛名单。',()=>mutate('settings',d));return;}}
+if(op==='tournament_copy'||op==='tournament_delete'){
+    const result=await request('/'+op,d);
+    closeModal();
+    toast(result.message);
+    await load();
+    return;
+}
 if(op==='create'){d=readSettings(f);const r=await request('/create',d);location.href='/tournaments/'+r.slug+'/admin';return;}
 if(op==='stage_save'){
     const roundBO=collectRoundBo(f);

@@ -31,6 +31,12 @@ try {
         $auth->requireGlobal();
         if ($path==='/api/admin/state' && $method==='GET') respond(['tournaments'=>$db->all('SELECT t.*, (SELECT COUNT(*) FROM teams te WHERE te.tournament_id=t.id) AS team_count FROM tournaments t ORDER BY t.id DESC')]);
         if ($path==='/api/admin/create' && $method==='POST') respond($service->create($input),201);
+        if ($path==='/api/admin/tournament_copy' && $method==='POST') {
+            respond($service->copyTournament(Input::int($input['id']??null,1,PHP_INT_MAX),$input),201);
+        }
+        if ($path==='/api/admin/tournament_delete' && $method==='POST') {
+            respond($service->deleteTournament(Input::int($input['id']??null,1,PHP_INT_MAX),$input['confirmation']??null));
+        }
         if ($path==='/api/admin/verify-logs' && $method==='GET') respond($db->transaction(fn()=>$audit->verify()));
         if ($path==='/api/admin/logs' && $method==='GET') { $cursor=Input::int($_GET['before']??PHP_INT_MAX,1,PHP_INT_MAX);respond(['logs'=>$db->all('SELECT id,tournament_id,actor_type,action,target_type,target_id,old_data,new_data,ip_address,created_at,previous_hash,entry_hash FROM audit_logs WHERE id<? ORDER BY id DESC LIMIT 50',[$cursor])]); }
     }

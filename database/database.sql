@@ -133,12 +133,13 @@ CREATE TABLE login_attempts (
 ) ENGINE=InnoDB;
 CREATE TABLE audit_head (id TINYINT PRIMARY KEY, entry_hash CHAR(64) NOT NULL) ENGINE=InnoDB;
 INSERT INTO audit_head VALUES (1,REPEAT('0',64));
+-- Historical tournament IDs remain in immutable logs after live tournaments are deleted.
 CREATE TABLE audit_logs (
  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, tournament_id BIGINT UNSIGNED NULL,
  actor_type VARCHAR(100) NOT NULL, action VARCHAR(100) NOT NULL, target_type VARCHAR(50) NOT NULL,
  target_id BIGINT UNSIGNED NULL, old_data JSON NULL, new_data JSON NULL, ip_address VARCHAR(45) NOT NULL,
  created_at DATETIME NOT NULL, previous_hash CHAR(64) NOT NULL, entry_hash CHAR(64) NOT NULL, payload LONGTEXT NOT NULL,
- KEY (tournament_id,id), KEY (created_at), FOREIGN KEY (tournament_id) REFERENCES tournaments(id)
+ KEY (tournament_id,id), KEY (created_at)
 ) ENGINE=InnoDB;
 -- Neither application administrators nor normal business SQL can mutate history.
 DELIMITER $$

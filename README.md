@@ -93,6 +93,8 @@ location / {
 
 游戏计分及加时规则见 [游戏规则](deploy/GAME-RULES.md)。
 
+总管理员可复制赛事及其附件，也可输入确认词后删除赛事。已部署的站点请先执行数据库升级。 [赛事复制和删除说明](deploy/UPGRADE-TOURNAMENT-LIFECYCLE.md)
+
 ## 开源许可
 
 本项目采用 GNU 通用公共许可证第 3 版（`GPL-3.0-only`）。完整条款见 [LICENSE](LICENSE)。

@@ -38,8 +38,13 @@ final class TournamentService {
         $t['map_pool']=MapStore::pool($t);
         return ['tournament'=>$t,'stages'=>$stages,'teams'=>$this->db->all('SELECT * FROM teams WHERE tournament_id=? ORDER BY seed,id',[$tid]),'stage_teams'=>$this->db->all('SELECT * FROM stage_teams WHERE tournament_id=? ORDER BY stage_id,seed',[$tid]),'groups'=>$this->db->all('SELECT * FROM `groups` WHERE tournament_id=? ORDER BY id',[$tid]),'group_members'=>$this->db->all('SELECT * FROM group_members WHERE tournament_id=?',[$tid]),'matches'=>$matches,'dependencies'=>$this->db->all('SELECT * FROM match_dependencies WHERE tournament_id=?',[$tid]),'standings'=>$this->db->all('SELECT * FROM standings WHERE tournament_id=? ORDER BY stage_id,group_key,rank_position',[$tid]),'server_time'=>gmdate('c')];
     }
+    private function slug(mixed $value): string {
+        $slug=Input::text($value,100);
+        if (!preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/',$slug)) throw new Problem('Slug 只能包含小写字母、数字和单个连接符。');
+        return $slug;
+    }
     private function settings(array $d,?array $existing=null): array {
-        $slug=Input::text($d['slug']??'',100);if (!preg_match('/^[a-z0-9]+(?:-[a-z0-9]+)*$/',$slug)) throw new Problem('Slug 只能包含小写字母、数字和单个连接符。');
+        $slug=$this->slug($d['slug']??'');
         $rules=GameRules::preset(Input::choice($d['game']??'cs2',['valorant','cs2']));
         $oldRules=$existing?json_decode($existing['overtime_rules'],true):[];
         $defaultPool=$existing && ($oldRules['game']??null)===$rules['game']?MapStore::pool($existing):$rules['map_pool'];
@@ -56,6 +61,111 @@ final class TournamentService {
             $this->audit->append($tid,'create','tournament',$tid,null,$s);return ['id'=>$tid,'slug'=>$s['slug']];
         });
     }
+    public function copyTournament(int $sourceId, array $input): array {
+        $this->auth->requireGlobal();
+        $name = Input::text($input['name'] ?? '', 150);
+        $slug = $this->slug($input['slug'] ?? '');
+        $hash = $this->password($input['password'] ?? '');
+
+        return $this->db->transaction(function () use ($sourceId, $name, $slug, $hash): array {
+            $source = $this->db->one('SELECT * FROM tournaments WHERE id=? FOR UPDATE', [$sourceId])
+                ?? throw new Problem('赛事不存在。', 404);
+            $this->db->run(
+                "INSERT INTO tournaments (name,slug,description,logo_path,score_mode,default_bo,game_win_score,overtime_rules,timezone,stage_count,status)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,'disabled')",
+                [$name,$slug,$source['description'],$source['logo_path'],$source['score_mode'],$source['default_bo'],
+                 $source['game_win_score'],$source['overtime_rules'],$source['timezone'],$source['stage_count']]
+            );
+            $targetId = $this->db->id();
+            $this->db->run('INSERT INTO tournament_credentials (tournament_id,password_hash) VALUES (?,?)', [$targetId,$hash]);
+
+            $teams = $this->copyRows('teams', $this->db->all('SELECT * FROM teams WHERE tournament_id=? ORDER BY id', [$sourceId]), $targetId);
+            $stages = $this->copyRows('stages', $this->db->all('SELECT * FROM stages WHERE tournament_id=? ORDER BY id', [$sourceId]), $targetId);
+            $groups = $this->copyRows('groups', $this->db->all('SELECT * FROM `groups` WHERE tournament_id=? ORDER BY id', [$sourceId]), $targetId, ['stage_id'=>$stages]);
+            $stageTeams = ['stage_id'=>$stages, 'team_id'=>$teams];
+            $groupTeams = $stageTeams + ['group_id'=>$groups];
+            $this->copyRows('stage_teams', $this->db->all('SELECT * FROM stage_teams WHERE tournament_id=?', [$sourceId]), $targetId, $stageTeams);
+            $this->copyRows('group_members', $this->db->all('SELECT * FROM group_members WHERE tournament_id=?', [$sourceId]), $targetId, $groupTeams);
+
+            $matchRows = $this->db->all('SELECT * FROM matches WHERE tournament_id=? ORDER BY id', [$sourceId]);
+            foreach ($matchRows as &$row) {
+                if ($row['group_id'] !== null) {
+                    $prefix = 'G'.$row['group_id'].'-';
+                    if (str_starts_with($row['node_key'], $prefix)) {
+                        $row['node_key'] = 'G'.$groups[$row['group_id']].'-'.substr($row['node_key'], strlen($prefix));
+                    }
+                }
+            }
+            unset($row);
+            $matches = $this->copyRows('matches', $matchRows, $targetId, [
+                'stage_id'=>$stages, 'group_id'=>$groups, 'team_a_id'=>$teams, 'team_b_id'=>$teams,
+                'winner_id'=>$teams, 'forfeit_team_id'=>$teams,
+            ]);
+            $games = $this->db->all('SELECT g.* FROM match_games g JOIN matches m ON m.id=g.match_id WHERE m.tournament_id=?', [$sourceId]);
+            $this->copyRows('match_games', $games, $targetId, ['match_id'=>$matches, 'winner_id'=>$teams]);
+            $this->copyRows('match_maps', $this->db->all('SELECT * FROM match_maps WHERE tournament_id=?', [$sourceId]), $targetId, ['match_id'=>$matches]);
+            $this->copyRows('match_dependencies', $this->db->all('SELECT * FROM match_dependencies WHERE tournament_id=?', [$sourceId]), $targetId,
+                ['source_match_id'=>$matches, 'target_match_id'=>$matches]);
+            $standings = $this->db->all(
+                'SELECT tournament_id,stage_id,group_id,team_id,wins,losses,points,game_difference,buchholz,rank_position,updated_at
+                 FROM standings WHERE tournament_id=?',
+                [$sourceId]
+            );
+            $this->copyRows('standings', $standings, $targetId, $groupTeams);
+
+            // Copy file bytes inside MySQL and match attachments to the cloned match IDs.
+            $attachments = $this->db->run(
+                'INSERT INTO attachments (tournament_id,match_id,original_name,size_bytes,is_public,content,created_at)
+                 SELECT ?, new_match.id, a.original_name, a.size_bytes, a.is_public, a.content, a.created_at
+                 FROM attachments a
+                 LEFT JOIN matches old_match ON old_match.tournament_id=a.tournament_id AND old_match.id=a.match_id
+                 LEFT JOIN matches new_match ON new_match.tournament_id=? AND new_match.match_number=old_match.match_number
+                 WHERE a.tournament_id=? ORDER BY a.id',
+                [$targetId,$targetId,$sourceId]
+            )->rowCount();
+            $this->audit->append($targetId, 'tournament_copy', 'tournament', $targetId, null, [
+                'source_id'=>$sourceId, 'name'=>$name, 'slug'=>$slug, 'status'=>'disabled', 'attachment_count'=>$attachments,
+            ]);
+            return ['id'=>$targetId, 'slug'=>$slug, 'message'=>'赛事已复制，副本默认停用。'];
+        });
+    }
+
+    /** Insert source rows in dependency order and return the old-to-new primary key map. */
+    private function copyRows(string $table, array $rows, int $targetId, array $references = []): array {
+        if (!$rows) return [];
+        $columns = array_values(array_diff(array_keys($rows[0]), ['id']));
+        $sql = 'INSERT INTO `'.$table.'` (`'.implode('`,`', $columns).'`) VALUES ('
+            .implode(',', array_fill(0, count($columns), '?')).')';
+        $ids = [];
+        foreach ($rows as $row) {
+            if (array_key_exists('tournament_id', $row)) $row['tournament_id'] = $targetId;
+            foreach ($references as $column=>$map) {
+                if ($row[$column] !== null) $row[$column] = $map[$row[$column]] ?? throw new \LogicException('Missing cloned reference: '.$column);
+            }
+            $this->db->run($sql, array_map(fn($column)=>$row[$column], $columns));
+            if (isset($row['id'])) $ids[$row['id']] = $this->db->id();
+        }
+        return $ids;
+    }
+
+    public function deleteTournament(int $tid, mixed $confirmation): array {
+        $this->auth->requireGlobal();
+        if ($confirmation !== '确认删除') throw new Problem('请输入“确认删除”后再提交。');
+
+        return $this->db->transaction(function () use ($tid): array {
+            $tournament = $this->db->one('SELECT id,name,slug,status FROM tournaments WHERE id=? FOR UPDATE', [$tid])
+                ?? throw new Problem('赛事不存在。', 404);
+            $this->db->run('DELETE g FROM match_games g JOIN matches m ON m.id=g.match_id WHERE m.tournament_id=?', [$tid]);
+            foreach (['attachments','match_maps','match_dependencies','matches','standings','group_members',
+                      'groups','stage_teams','stages','teams','tournament_credentials'] as $table) {
+                $this->db->run('DELETE FROM `'.$table.'` WHERE tournament_id=?', [$tid]);
+            }
+            $this->db->run('DELETE FROM tournaments WHERE id=?', [$tid]);
+            $this->audit->append($tid, 'tournament_delete', 'tournament', $tid, $tournament, null);
+            return ['message'=>'赛事已删除。'];
+        });
+    }
+
     public function mutate(int $tid,string $action,array $d): array {
         $this->auth->requireTournament($tid);
         return $this->db->transaction(function () use ($tid,$action,$d): array {
