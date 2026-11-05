@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+/dist/
+*.zip.sha256
+/config/local.php
+/var/*
+!/var/.gitkeep
+/public/uploads/*
+!/public/uploads/.gitkeep
+/.runtime/
+*.zip

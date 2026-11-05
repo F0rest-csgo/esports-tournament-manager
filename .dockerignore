@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+dist
+config/local.php
+.runtime
+var
+*.zip
+public/uploads/*

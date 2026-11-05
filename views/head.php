@@ -1,0 +1,2 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title><?= e($title) ?> · TOURNAMENT</title><link rel="stylesheet" href="/assets/app.css?v=<?= e(filemtime(dirname(__DIR__).'/public/assets/app.css')) ?>"><?php if (isset($csrf)): ?><meta name="csrf-token" content="<?= e($csrf) ?>"><?php endif; ?><script src="/assets/app.js?v=<?= e(filemtime(dirname(__DIR__).'/public/assets/app.js')) ?>" defer></script></head>
