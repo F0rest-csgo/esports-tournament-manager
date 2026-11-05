@@ -92,3 +92,7 @@ location / {
 审计日志可在总后台验证，也可在部署目录执行 php bin/verify-audit.php。Docker 中使用 docker compose exec -T php php bin/verify-audit.php。
 
 游戏计分及加时规则见 [游戏规则](deploy/GAME-RULES.md)。
+
+## 开源许可
+
+本项目采用 GNU 通用公共许可证第 3 版（`GPL-3.0-only`）。完整条款见 [LICENSE](LICENSE)。
